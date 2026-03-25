@@ -2,6 +2,7 @@ package Xinyuiii.properties;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 import Xinyuiii.reecriture.NewDecoratorRandom;
 import com.seedfinding.mccore.rand.ChunkRand;
@@ -29,6 +30,7 @@ import kotlin.Triple;
 
 public class BastionGenerator {
     private List<Piece> pieces;
+    private HashMap<String, Integer> pieceNameCounts;
     private static final int MAX_DIST = 80; // max distance from start piece anchor
     private BastionType type;
     private MCVersion version;
@@ -43,11 +45,16 @@ public class BastionGenerator {
         return generate(worldSeed, bastionPos.getX(), bastionPos.getZ(), new ChunkRand());
     }
 
+    private void incrementPieceCount(Piece piece) {
+        pieceNameCounts.merge(piece.name, 1, Integer::sum);
+    }
+
     private boolean generate(long worldSeed, int chunkX, int chunkZ, ChunkRand rand) {
         if (version.isOlderThan(MCVersion.v1_16)) {
             throw new UnsupportedVersion(version, " bastions");
         }
         this.pieces = new ArrayList<>();
+        this.pieceNameCounts = new HashMap<>();
         boolean standardisedShuffling = version.isNewerOrEqualTo(MCVersion.v1_19);
         rand.setCarverSeed(worldSeed, chunkX, chunkZ, version);
         BlockRotation rotation;
@@ -74,8 +81,9 @@ public class BastionGenerator {
         piece.setBoundsTop(y + 80);
         // create structure bounding box
         BlockBox fullBox = new BlockBox(centerX - MAX_DIST, y - MAX_DIST, centerZ - MAX_DIST, centerX + MAX_DIST + 1, y + MAX_DIST + 1, centerZ + MAX_DIST + 1);
-        Assembler assembler = new Assembler(6, this.pieces, this.type, y, standardisedShuffling);
+        Assembler assembler = new Assembler(6, this.pieces, this::incrementPieceCount, this.type, y, standardisedShuffling);
         assembler.pieces.add(piece);
+        incrementPieceCount(piece);
         VoxelShape a = new VoxelShape(fullBox);
         a.fullBoxes.add(new BlockBox(box.minX, box.minY, box.minZ, box.maxX + 1, box.maxY + 1, box.maxZ + 1));
         piece.voxelShape = a;
@@ -415,12 +423,14 @@ public class BastionGenerator {
         BastionType bastionType;
         boolean standardisedShuffling;
         List<Piece> pieces;
+        Consumer<Piece> pieceAddedCallback;
 
         private final Deque<Piece> placing = new ArrayDeque<>();
 
-        Assembler(int maxDepth, List<Piece> pieces, BastionType type, int heightY, boolean standardisedShuffling) {
+        Assembler(int maxDepth, List<Piece> pieces, Consumer<Piece> pieceAddedCallback, BastionType type, int heightY, boolean standardisedShuffling) {
             this.maxDepth = maxDepth;
             this.pieces = pieces;
+            this.pieceAddedCallback = pieceAddedCallback;
             this.bastionType = type;
             this.standardisedShuffling = standardisedShuffling;
         }
@@ -514,6 +524,7 @@ public class BastionGenerator {
                                             Piece piece2 = new Piece(jigsawpiece1, blockpos5, box3, rotation1, depth + 1);
                                             if (depth + 1 <= this.maxDepth) {
                                                 this.pieces.add(piece2);
+                                                this.pieceAddedCallback.accept(piece2);
                                                 piece2.setVoxelShape(mutableobject1);
                                                 this.placing.addLast(piece2);
                                             }
@@ -575,5 +586,9 @@ public class BastionGenerator {
 
     public BastionType getType() {
         return this.type;
+    }
+
+    public HashMap<String, Integer> getPieceNameCounts() {
+        return this.pieceNameCounts;
     }
 }
