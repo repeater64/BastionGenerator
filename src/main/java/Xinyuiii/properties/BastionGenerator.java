@@ -1,6 +1,7 @@
 package Xinyuiii.properties;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import Xinyuiii.reecriture.NewDecoratorRandom;
 import com.seedfinding.mccore.rand.ChunkRand;
@@ -9,6 +10,7 @@ import com.seedfinding.mccore.util.block.BlockDirection;
 import com.seedfinding.mccore.util.block.BlockMirror;
 import com.seedfinding.mccore.util.block.BlockRotation;
 import com.seedfinding.mccore.util.data.Pair;
+import com.seedfinding.mccore.util.math.DistanceMetric;
 import com.seedfinding.mccore.util.pos.BPos;
 import com.seedfinding.mccore.util.pos.CPos;
 import com.seedfinding.mccore.version.MCVersion;
@@ -23,6 +25,7 @@ import Xinyuiii.reecriture.VoxelShape;
 import Xinyuiii.reecriture.BastionPools.BastionStructureLoot;
 import Xinyuiii.reecriture.BastionPools.BastionStructureSize;
 import Xinyuiii.reecriture.BastionPools.JigsawBlock;
+import kotlin.Triple;
 
 public class BastionGenerator {
     private List<Piece> pieces;
@@ -163,6 +166,69 @@ public class BastionGenerator {
         return result;
     }
 
+    public boolean hasFiveObsidianChest_1_16_1(Set<String> pieceNamesToLookIn) {
+        List<Triple<BPos, String, LootTable>> chestsPos = new ArrayList<>();
+        for (Piece p : pieces) {
+            List<LootTable> tables = BastionStructureLoot.STRUCTURE_LOOT_1_16_0.get(p.name);
+            int size = tables.size();
+            if (size != 0) {
+                List<BPos> pos = new ArrayList<>();
+                for (BPos offset : BastionStructureLoot.STRUCTURE_LOOT_OFFSETS.get(p.name)) {
+                    pos.add(p.pos.add(p.getTransformedPos(offset, p.rotation)));
+                }
+                for (int i = 0; i < size; i++) {
+                    chestsPos.add(new Triple<>(pos.get(i), p.name, tables.get(i)));
+                }
+            }
+        }
+
+        List<CPos> chunkPos = new ArrayList<>();
+        ChunkRand rand = new ChunkRand();
+
+        BPos previousChestPos = null;
+        int previousChestObbyCount = 0;
+
+        for (Triple<BPos, String, LootTable> chest : chestsPos) {
+            CPos chunk = chest.getFirst().toChunkPos();
+            rand.setDecoratorSeed(worldSeed, chunk.getX() * 16, chunk.getZ() * 16, 40012, version);
+            if (chunkPos.contains(chunk)) {
+                int num = Collections.frequency(chunkPos, chunk);
+                for (int i = 0; i < num; i++) {
+                    rand.nextLong();
+                }
+            }
+            if (pieceNamesToLookIn.contains(chest.getSecond())) {
+                LootContext context = new LootContext(rand.nextLong(), version);
+
+                AtomicInteger obbyCount = new AtomicInteger();
+
+                chest.getThird().generate(context, stack -> {
+                    if (Objects.equals(stack.getItem().getName(), "obsidian")) {
+                        obbyCount.addAndGet(stack.getCount());
+                    }
+                });
+
+                int actualObbyCount = obbyCount.get();
+                if (actualObbyCount >= 5) return true;
+                if (actualObbyCount != 0) {
+                    // Check if this is the second chest of a double chest and the previous chest has some obby to make a combined total of more than 5
+                    if (previousChestObbyCount != 0) {
+                        if (previousChestPos.distanceTo(chest.getFirst(), DistanceMetric.MANHATTAN) == 1) {
+                            if (previousChestObbyCount + actualObbyCount >= 5) return true;
+                        }
+                    }
+                }
+
+                previousChestObbyCount = actualObbyCount;
+                previousChestPos = chest.getFirst();
+            }
+
+
+            chunkPos.add(chunk);
+        }
+        return false;
+    }
+
     private int getTreasureBottomGoldBlocks() {
         if (this.type != BastionType.TREASURE) {
             return 0;
@@ -238,7 +304,7 @@ public class BastionGenerator {
         public BlockRotation rotation;
         int boundsTop;
         private VoxelShape voxelShape;
-        int depth;
+        public int depth;
 
         public String getName() {
             return this.name;
